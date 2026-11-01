@@ -51,9 +51,11 @@ Everything goes in `~/quake-badge` unless you give `--workdir`. Backups go in `~
 | UP | Jump | Up |
 | LEFT / RIGHT | Strafe | Left / Right |
 | SELECT | Next weapon. Hold it to open the menu. | Enter. Hold it to close the menu. |
-| HOME | Menu | Back |
+| HOME | Menu. Hold it for 2 s to sleep. | Back. Hold it for 2 s to sleep. |
 
 The badge starts at the main menu, with the demos playing behind it. When a game starts, and each time the menu closes, the game pauses. Hold the badge comfortably and press SELECT. That position becomes level for tilt.
+
+To sleep, hold HOME for 2 seconds. The screen and the motion sensor turn off, and the game stops where it is. Press any front button to wake the badge. That press does nothing in the game. If a game is in progress, you set the tilt level again. Sleep keeps the badge powered, so it uses more battery than turning it off. The rear RESET button restarts the badge in hardware, so it cannot be used for sleep.
 
 The picture is rotated 180 degrees. To change this, set `BADGE_SCREEN_ROTATED` to 0 in `platform/rp2350/qservice.h`. The tilt, strafe and menu directions change with it.
 

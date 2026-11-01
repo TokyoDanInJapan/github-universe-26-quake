@@ -1,7 +1,7 @@
 From 823ef095e933ff42c72862f01812c3b05ba638b0 Mon Sep 17 00:00:00 2001
 From: TokyoDanInJapan <254110859+TokyoDanInJapan@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 22:03:14 +0900
-Subject: [PATCH 6/9] Badge: boot to main menu with demos playing behind it
+Subject: [PATCH 06/10] Badge: boot to main menu with demos playing behind it
 
 Tilt and calibration are skipped during demo playback; the calibration
 prompt appears when a real game starts.

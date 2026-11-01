@@ -1,7 +1,7 @@
 From 3dc9971f01b65b821e7e3f710279142a96c0b36f Mon Sep 17 00:00:00 2001
 From: TokyoDanInJapan <254110859+TokyoDanInJapan@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 22:03:14 +0900
-Subject: [PATCH 5/9] Badge: swap strafe buttons
+Subject: [PATCH 05/10] Badge: swap strafe buttons
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---

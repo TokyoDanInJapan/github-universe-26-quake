@@ -1,0 +1,160 @@
+From 02e4a423f36a7888172a609c94c0b4c64a940ae5 Mon Sep 17 00:00:00 2001
+From: TokyoDanInJapan <254110859+TokyoDanInJapan@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 22:20:08 +0900
+Subject: [PATCH 10/10] Badge: hold HOME to sleep
+
+Holding HOME for 2 s turns off the backlight and panel (DISPOFF, SLPIN)
+and powers down the accelerometer, with both cores waiting in low-power
+mode. Any front button wakes the badge where it left off; the wake press
+is swallowed, and a game in progress asks for calibration again. A
+short HOME press is still menu/back, now sent on release. The power
+latch stays on, so the badge always wakes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ platform/rp2350/game/platform.c | 27 +++++++++++++++++--
+ platform/rp2350/qservice.c      | 47 +++++++++++++++++++++++++++++++++
+ platform/rp2350/qservice.h      |  2 ++
+ 3 files changed, 74 insertions(+), 2 deletions(-)
+
+diff --git a/platform/rp2350/game/platform.c b/platform/rp2350/game/platform.c
+index c992320..54bceca 100644
+--- a/platform/rp2350/game/platform.c
++++ b/platform/rp2350/game/platform.c
+@@ -32,9 +32,10 @@ void IN_Commands(void){}
+  *
+  * In game:  tilt forward/back = walk, tilt left/right = turn,
+  *           DOWN = fire, UP = jump, SELECT = next weapon (hold it to open the menu),
+- *           LEFT/RIGHT = strafe, HOME = menu.
++ *           LEFT/RIGHT = strafe, HOME = menu (hold it to sleep).
+  * In menus: the buttons are arrows, SELECT = enter (hold it to close the menu),
+- *           HOME = back.
++ *           HOME = back (hold it to sleep).
++ * Asleep, the screen and motion sensor are off; any front button wakes the badge.
+  *
+  * The badge boots to the main menu with the demos playing behind it.
+  * Before play starts, and each time the menu closes, the game pauses and
+@@ -59,6 +60,7 @@ void IN_Commands(void){}
+ #define BADGE_FILTER             0.25f  /* low-pass amount per frame */
+ #define BADGE_RAD2DEG (180.0f/(float)M_PI)
+ #define BADGE_LONG_PRESS_S       0.6    /* hold SELECT this long to open the menu */
++#define BADGE_SLEEP_PRESS_S      2.0    /* hold HOME this long to sleep */
+ 
+ static float tilt_x,tilt_y,tilt_z,level_pitch,level_roll;
+ static bool tilt_have_sample,tilt_have_level;
+@@ -179,6 +181,27 @@ void Sys_SendKeyEvents(void){
+             }
+             continue;
+         }
++        /* HOME is menu/back on release, or sleep once held long enough. */
++        static bool home_pending;static double home_down_at;
++        if(i==QSERVICE_BADGE_HOME){
++            double t=Sys_FloatTime();
++            held_key[i]=0;
++            if(press && (now&mask)){home_pending=true;home_down_at=t;}
++            else if(press){Key_Event(K_ESCAPE,true);Key_Event(K_ESCAPE,false);}
++            if(home_pending){
++                if(!(now&mask)){home_pending=false;Key_Event(K_ESCAPE,true);Key_Event(K_ESCAPE,false);}
++                else if(t-home_down_at>=BADGE_SLEEP_PRESS_S){
++                    home_pending=false;
++                    /* Let go of any held keys so nothing keeps firing while asleep. */
++                    for(unsigned k=0;k<QSERVICE_BADGE_BUTTONS;k++)if(held_key[k]){Key_Event(held_key[k],false);held_key[k]=0;}
++                    qservice_sleep();
++                    if(key_dest==key_game && !_g->cls.demoplayback && _g->cls.signon==SIGNONS)calibrate_start();
++                    previous=0;
++                    return;
++                }
++            }
++            continue;
++        }
+         if((now^previous)&mask){
+             /* Release the same key that was pressed, even if the menu opened in between. */
+             if(now&mask){held_key[i]=swallow?0:key;if(!swallow)Key_Event(key,true);}
+diff --git a/platform/rp2350/qservice.c b/platform/rp2350/qservice.c
+index 21ec1cd..8235ee9 100644
+--- a/platform/rp2350/qservice.c
++++ b/platform/rp2350/qservice.c
+@@ -136,6 +136,43 @@ static bool badge_read_buttons(uint16_t *buttons) {
+     imu_read();
+     return true;
+ }
++
++/* Sleep: 0 awake, 1 requested by core 0, 2 asleep. */
++static uint32_t sleep_state;
++
++static bool badge_any_button(void) {
++    for(unsigned i=0;i<QSERVICE_BADGE_BUTTONS;++i)
++        if(!gpio_get(badge_button_pins[i]))return true;
++    return false;
++}
++
++enum { ST7789_SLPIN=0x10, ST7789_SLPOUT=0x11, ST7789_DISPOFF=0x28, ST7789_DISPON=0x29 };
++
++/* Runs on core 1 between frames. Returns once a front button wakes the badge. */
++static void badge_sleep(void) {
++    st7789_set_backlight(0);
++    st7789_command(ST7789_DISPOFF,NULL,0);
++    st7789_command(ST7789_SLPIN,NULL,0);
++    if(imu_ok)imu_write(LSM6_CTRL1_XL,0x00); /* accelerometer power-down */
++    publish(&sleep_state,2);
++
++    /* Wait for the button that started sleep to be let go, then for a new press. */
++    while(badge_any_button())sleep_ms(20);
++    sleep_ms(200);
++    while(!badge_any_button())sleep_ms(50);
++    /* Swallow the wake press so it does nothing in the game. */
++    while(badge_any_button())sleep_ms(20);
++
++    st7789_command(ST7789_SLPOUT,NULL,0);
++    sleep_ms(120); /* the panel needs 120 ms after leaving sleep */
++    st7789_command(ST7789_DISPON,NULL,0);
++    imu_ok=imu_configure();
++    __atomic_store_n(&input_buttons,0,__ATOMIC_RELEASE);
++    __atomic_store_n(&sampled_buttons,0,__ATOMIC_RELEASE);
++    st7789_set_backlight(255);
++    publish(&sleep_state,0);
++    __sev();
++}
+ #endif
+ 
+ static void audio_lock_mixer(void) {
+@@ -377,6 +414,9 @@ static void worker(void) {
+ 
+     for(;;) {
+         check_core0_fault();
++#ifdef UNIVERSE_BADGE
++        if(load(&sleep_state)==1)badge_sleep();
++#endif
+         if(load(&frame.state)==READY)video_present();
+         input_service();
+         audio_service();
+@@ -430,6 +470,13 @@ bool qservice_accel(int16_t out[3]) {
+ #endif
+ }
+ 
++void qservice_sleep(void) {
++#ifdef UNIVERSE_BADGE
++    publish(&sleep_state,1);
++    while(load(&sleep_state)!=0)__wfe();
++#endif
++}
++
+ bool qservice_imu_status(uint32_t *failures) {
+ #ifdef UNIVERSE_BADGE
+     *failures=imu_failures;
+diff --git a/platform/rp2350/qservice.h b/platform/rp2350/qservice.h
+index ad3da05..4a55547 100644
+--- a/platform/rp2350/qservice.h
++++ b/platform/rp2350/qservice.h
+@@ -21,6 +21,8 @@ enum {
+ bool qservice_accel(int16_t out[3]);
+ /* True if the IMU is configured; *failures counts failed I2C transfers. */
+ bool qservice_imu_status(uint32_t *failures);
++/* Badge only: screen and motion sensor off until a front button is pressed. Blocks core 0 until then. */
++void qservice_sleep(void);
+ 
+ /*
+  * Badge orientation. 1 = picture rotated 180 degrees, so the badge is held the
+-- 
+2.56.0
+

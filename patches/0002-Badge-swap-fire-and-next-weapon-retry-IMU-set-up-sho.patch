@@ -1,8 +1,8 @@
 From e74db5859aa7673dc984d54ac2a1c6fbdc14c27f Mon Sep 17 00:00:00 2001
 From: TokyoDanInJapan <254110859+TokyoDanInJapan@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 22:03:14 +0900
-Subject: [PATCH 2/9] Badge: swap fire and next weapon, retry IMU set-up, show
- tilt status
+Subject: [PATCH 02/10] Badge: swap fire and next weapon, retry IMU set-up,
+ show tilt status
 
 DOWN now fires and SELECT changes weapon. The IMU set-up is retried
 twice a second if it fails, and a status line shows IMU state and

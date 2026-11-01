@@ -1,7 +1,7 @@
 From 0d091cfa05c4826f690aa70665cb2fcc51c86a48 Mon Sep 17 00:00:00 2001
 From: TokyoDanInJapan <254110859+TokyoDanInJapan@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 22:03:14 +0900
-Subject: [PATCH 4/9] Badge: invert tilt forward/back and left/right
+Subject: [PATCH 04/10] Badge: invert tilt forward/back and left/right
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---

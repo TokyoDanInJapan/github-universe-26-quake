@@ -1,7 +1,7 @@
 From 98cdbc7978e5f90dded3c829eb684086d3265eca Mon Sep 17 00:00:00 2001
 From: TokyoDanInJapan <254110859+TokyoDanInJapan@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 22:03:14 +0900
-Subject: [PATCH 9/9] Badge: rotate the picture 180 degrees
+Subject: [PATCH 09/10] Badge: rotate the picture 180 degrees
 
 BADGE_SCREEN_ROTATED (default 1) turns the ST7789 output round and flips
 the tilt, strafe and menu up/down directions to match, since the badge

@@ -1,7 +1,7 @@
 From 84c258fbe13592697370666af93cc6b9ab46be30 Mon Sep 17 00:00:00 2001
 From: TokyoDanInJapan <254110859+TokyoDanInJapan@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 22:03:14 +0900
-Subject: [PATCH 3/9] Badge: pause and ask for calibration before play
+Subject: [PATCH 03/10] Badge: pause and ask for calibration before play
 
 At start and whenever the menu closes, the server is paused and a
 prompt asks the player to hold the badge comfortably and press SELECT.

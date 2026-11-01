@@ -1,7 +1,7 @@
 From 3afb2a0f4686d8b396f5c9aebf5ad08c36b17fc3 Mon Sep 17 00:00:00 2001
 From: TokyoDanInJapan <254110859+TokyoDanInJapan@users.noreply.github.com>
 Date: Sun, 1 Nov 2026 22:03:14 +0900
-Subject: [PATCH 8/9] Badge: hold SELECT to open or close the menu
+Subject: [PATCH 08/10] Badge: hold SELECT to open or close the menu
 
 A short SELECT press is next weapon in game and enter in menus, sent on
 release. Holding it for 0.6 s opens the menu in game, or closes the
