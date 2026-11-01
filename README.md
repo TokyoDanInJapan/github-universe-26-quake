@@ -4,6 +4,11 @@
 [zenodante/RP2350-Quake](https://github.com/zenodante/RP2350-Quake), with the patches in `patches/`
 for the badge's pins, buttons, motion sensor and screen.
 
+<p align="center">
+  <img src="images/badge-quake-menu.jpg" alt="The Quake main menu on the badge's screen, with a demo playing behind it" width="49%">
+  <img src="images/badge-quake-gameplay.jpg" alt="Quake gameplay on the badge's screen, with the status bar showing health and ammo" width="49%">
+</p>
+
 ## Usage
 
 ```bash
