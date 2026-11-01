@@ -1,0 +1,178 @@
+From e74db5859aa7673dc984d54ac2a1c6fbdc14c27f Mon Sep 17 00:00:00 2001
+From: TokyoDanInJapan <254110859+TokyoDanInJapan@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 22:03:14 +0900
+Subject: [PATCH 2/9] Badge: swap fire and next weapon, retry IMU set-up, show
+ tilt status
+
+DOWN now fires and SELECT changes weapon. The IMU set-up is retried
+twice a second if it fails, and a status line shows IMU state and
+readings on screen for 30 s and on USB serial every second.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ platform/rp2350/game/platform.c | 29 +++++++++++++++++++++++++----
+ platform/rp2350/qservice.c      | 33 ++++++++++++++++++++++++++++-----
+ platform/rp2350/qservice.h      |  2 ++
+ 3 files changed, 55 insertions(+), 9 deletions(-)
+
+diff --git a/platform/rp2350/game/platform.c b/platform/rp2350/game/platform.c
+index b3a0060..7aab162 100644
+--- a/platform/rp2350/game/platform.c
++++ b/platform/rp2350/game/platform.c
+@@ -31,7 +31,7 @@ void IN_Commands(void){}
+  * GitHub Universe badge controls.
+  *
+  * In game:  tilt forward/back = walk, tilt left/right = turn,
+- *           SELECT = fire, UP = jump, DOWN = next weapon,
++ *           DOWN = fire, UP = jump, SELECT = next weapon,
+  *           LEFT/RIGHT = strafe, HOME = menu.
+  * In menus: the buttons are arrows, SELECT = enter, HOME = back.
+  *
+@@ -68,29 +68,50 @@ static float tilt_axis(float degrees){
+     return degrees<0?-v:v;
+ }
+ 
++/* Set to 0 to hide the tilt status line once tilt works. */
++#define BADGE_TILT_DEBUG 1
++
++static void tilt_debug(bool have,const int16_t *a,float forward,float turn){
++#if BADGE_TILT_DEBUG
++    static double next,start;double now=Sys_FloatTime();
++    if(start==0)start=now;
++    if(now<next)return;
++    next=now+1.0;
++    uint32_t failures;bool ok=qservice_imu_status(&failures);
++    char line[96];
++    if(have)snprintf(line,sizeof line,"imu ok=%d err=%lu a=%d %d %d fwd=%d turn=%d",ok,(unsigned long)failures,a[0],a[1],a[2],(int)(forward*100),(int)(turn*100));
++    else snprintf(line,sizeof line,"imu ok=%d err=%lu no data",ok,(unsigned long)failures);
++    printf("%s\n",line);
++    if(now-start<30.0)Con_Printf("%s\n",line);
++#else
++    (void)have;(void)a;(void)forward;(void)turn;
++#endif
++}
++
+ void IN_Move(usercmd_t *cmd){
+     int16_t a[3];
+-    if(!qservice_accel(a))return;
++    if(!qservice_accel(a)){tilt_debug(false,a,0,0);return;}
+     if(!tilt_have_sample){tilt_x=a[0];tilt_y=a[1];tilt_z=a[2];tilt_have_sample=true;tilt_first_sample=Sys_FloatTime();}
+     tilt_x+=(a[0]-tilt_x)*BADGE_FILTER;tilt_y+=(a[1]-tilt_y)*BADGE_FILTER;tilt_z+=(a[2]-tilt_z)*BADGE_FILTER;
+ 
+     keydest_t dest=key_dest,previous=tilt_last_dest;tilt_last_dest=dest;
+     if(dest!=key_game)return;
+     if(previous==key_menu)tilt_set_level();
+-    if(!tilt_have_level){if(Sys_FloatTime()-tilt_first_sample>=1.0)tilt_set_level();return;}
++    if(!tilt_have_level){if(Sys_FloatTime()-tilt_first_sample>=1.0)tilt_set_level();tilt_debug(true,a,0,0);return;}
+ 
+     float dp=tilt_pitch()-level_pitch;
+     if(dp>180.0f)dp-=360.0f;else if(dp<-180.0f)dp+=360.0f;
+     float forward=tilt_axis(dp)*BADGE_TILT_FORWARD_SIGN;
+     float turn=tilt_axis(tilt_roll()-level_roll)*BADGE_TILT_TURN_SIGN;
+ 
++    tilt_debug(true,a,forward,turn);
+     cmd->forwardmove+=forward*BADGE_MAX_FORWARD;
+     _g->cl.viewangles[YAW]=anglemod(_g->cl.viewangles[YAW]-turn*BADGE_MAX_YAW*(float)host_frametime);
+ }
+ 
+ void Sys_SendKeyEvents(void){
+     /* Bit order matches QSERVICE_BADGE_*: UP, DOWN, LEFT, RIGHT, SELECT, HOME. */
+-    static const int game_keys[QSERVICE_BADGE_BUTTONS]={K_SPACE,'v','a','d',K_CTRL,K_ESCAPE};
++    static const int game_keys[QSERVICE_BADGE_BUTTONS]={K_SPACE,K_CTRL,'a','d','v',K_ESCAPE};
+     static const int menu_keys[QSERVICE_BADGE_BUTTONS]={K_UPARROW,K_DOWNARROW,K_LEFTARROW,K_RIGHTARROW,K_ENTER,K_ESCAPE};
+     static uint16_t previous;static int held_key[QSERVICE_BADGE_BUTTONS];
+     uint16_t now=qservice_buttons(),pressed=qservice_buttons_pressed();
+diff --git a/platform/rp2350/qservice.c b/platform/rp2350/qservice.c
+index 52e3a75..66db184 100644
+--- a/platform/rp2350/qservice.c
++++ b/platform/rp2350/qservice.c
+@@ -73,7 +73,9 @@ static const uint8_t badge_button_pins[QSERVICE_BADGE_BUTTONS]={
+ };
+ /* Latest accelerometer sample: x and y packed in one word, z in another. */
+ static volatile uint32_t accel_xy,accel_z;
+-static bool imu_ok;
++static volatile bool imu_ok;
++static volatile uint32_t imu_failures;
++static uint32_t imu_next_retry;
+ 
+ enum {
+     LSM6_CTRL1_XL=0x10, /* 0x40: 104 Hz, +-2 g */
+@@ -87,21 +89,31 @@ static bool imu_write(uint8_t reg,uint8_t value) {
+     return i2c_write_timeout_us(i2c1,UNIVERSE_BADGE_IMU_ADDRESS,data,2,false,I2C_TIMEOUT_US)==2;
+ }
+ 
+-static bool imu_init(void) {
++static void imu_bus_init(void) {
+     i2c_init(i2c1,400000);
+     gpio_set_function(UNIVERSE_BADGE_INT_I2C_SDA_PIN,GPIO_FUNC_I2C);
+     gpio_set_function(UNIVERSE_BADGE_INT_I2C_SCL_PIN,GPIO_FUNC_I2C);
+     gpio_pull_up(UNIVERSE_BADGE_INT_I2C_SDA_PIN);
+     gpio_pull_up(UNIVERSE_BADGE_INT_I2C_SCL_PIN);
++}
++
++static bool imu_configure(void) {
+     return imu_write(LSM6_CTRL3_C,0x44) && imu_write(LSM6_CTRL1_XL,0x40);
+ }
+ 
+ static void imu_read(void) {
+-    if(!imu_ok)return;
++    if(!imu_ok) {
++        /* The sensor may not be ready at power-up, so keep retrying twice a second. */
++        uint32_t now=time_us_32();
++        if((int32_t)(now-imu_next_retry)<0)return;
++        imu_next_retry=now+500000;
++        if(!(imu_ok=imu_configure())) {++imu_failures;return;}
++    }
+     uint8_t reg=LSM6_OUTX_L_XL,raw[6];
+     if(i2c_write_timeout_us(i2c1,UNIVERSE_BADGE_IMU_ADDRESS,&reg,1,true,I2C_TIMEOUT_US)!=1 ||
+        i2c_read_timeout_us(i2c1,UNIVERSE_BADGE_IMU_ADDRESS,raw,6,false,I2C_TIMEOUT_US)!=6) {
+         counter(&stats.input_errors);
++        ++imu_failures;
+         return;
+     }
+     __atomic_store_n(&accel_xy,(uint32_t)raw[0]|(uint32_t)raw[1]<<8|(uint32_t)raw[2]<<16|(uint32_t)raw[3]<<24,__ATOMIC_RELEASE);
+@@ -319,8 +331,9 @@ static void video_present(void) {
+ static void worker(void) {
+ #ifdef UNIVERSE_BADGE
+     badge_buttons_init();
+-    imu_ok=imu_init();
+-    if(!imu_ok)counter(&stats.input_errors);
++    imu_bus_init();
++    imu_ok=imu_configure();
++    if(!imu_ok)++imu_failures;
+ #else
+     i2c_init(i2c0,400000);
+     gpio_set_function(20,GPIO_FUNC_I2C);
+@@ -413,6 +426,16 @@ bool qservice_accel(int16_t out[3]) {
+ #endif
+ }
+ 
++bool qservice_imu_status(uint32_t *failures) {
++#ifdef UNIVERSE_BADGE
++    *failures=imu_failures;
++    return imu_ok;
++#else
++    *failures=0;
++    return false;
++#endif
++}
++
+ uint16_t qservice_buttons_pressed(void) {
+     uint32_t value=__atomic_fetch_and(&sampled_buttons,0xffffu,__ATOMIC_ACQ_REL);
+     return (uint16_t)(value>>16);
+diff --git a/platform/rp2350/qservice.h b/platform/rp2350/qservice.h
+index 754e908..85156da 100644
+--- a/platform/rp2350/qservice.h
++++ b/platform/rp2350/qservice.h
+@@ -19,6 +19,8 @@ enum {
+ };
+ /* Latest raw accelerometer sample (x, y, z; 16384 = 1 g). False if there is no IMU. */
+ bool qservice_accel(int16_t out[3]);
++/* True if the IMU is configured; *failures counts failed I2C transfers. */
++bool qservice_imu_status(uint32_t *failures);
+ /* Mixer mutations are synchronized with core 1 using the same shared-mixer
+  * spin-lock model as p8. PCM or QAD1 source bytes must remain valid while
+  * active; production QAD1 data is immutable XIP and is decoded on core 1. */
+-- 
+2.56.0
+

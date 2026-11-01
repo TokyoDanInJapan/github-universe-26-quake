@@ -1,0 +1,28 @@
+From 0d091cfa05c4826f690aa70665cb2fcc51c86a48 Mon Sep 17 00:00:00 2001
+From: TokyoDanInJapan <254110859+TokyoDanInJapan@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 22:03:14 +0900
+Subject: [PATCH 4/9] Badge: invert tilt forward/back and left/right
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ platform/rp2350/game/platform.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/platform/rp2350/game/platform.c b/platform/rp2350/game/platform.c
+index 35c4b42..3558be2 100644
+--- a/platform/rp2350/game/platform.c
++++ b/platform/rp2350/game/platform.c
+@@ -41,8 +41,8 @@ void IN_Commands(void){}
+  *
+  * If a tilt direction feels reversed, flip its sign here.
+  */
+-#define BADGE_TILT_FORWARD_SIGN  1.0f
+-#define BADGE_TILT_TURN_SIGN     1.0f
++#define BADGE_TILT_FORWARD_SIGN -1.0f
++#define BADGE_TILT_TURN_SIGN    -1.0f
+ #define BADGE_TILT_DEADZONE_DEG  6.0f
+ #define BADGE_TILT_FULL_DEG     25.0f
+ #define BADGE_MAX_FORWARD      320.0f   /* units/s; walk is 200, run is 400 */
+-- 
+2.56.0
+

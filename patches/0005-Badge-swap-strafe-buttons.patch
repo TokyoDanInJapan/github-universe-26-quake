@@ -1,0 +1,35 @@
+From 3dc9971f01b65b821e7e3f710279142a96c0b36f Mon Sep 17 00:00:00 2001
+From: TokyoDanInJapan <254110859+TokyoDanInJapan@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 22:03:14 +0900
+Subject: [PATCH 5/9] Badge: swap strafe buttons
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ platform/rp2350/game/platform.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/platform/rp2350/game/platform.c b/platform/rp2350/game/platform.c
+index 3558be2..a1b590b 100644
+--- a/platform/rp2350/game/platform.c
++++ b/platform/rp2350/game/platform.c
+@@ -32,7 +32,7 @@ void IN_Commands(void){}
+  *
+  * In game:  tilt forward/back = walk, tilt left/right = turn,
+  *           DOWN = fire, UP = jump, SELECT = next weapon,
+- *           LEFT/RIGHT = strafe, HOME = menu.
++ *           LEFT/RIGHT = strafe right/left, HOME = menu.
+  * In menus: the buttons are arrows, SELECT = enter, HOME = back.
+  *
+  * Before play starts, and each time the menu closes, the game pauses and
+@@ -131,7 +131,7 @@ void IN_Move(usercmd_t *cmd){
+ 
+ void Sys_SendKeyEvents(void){
+     /* Bit order matches QSERVICE_BADGE_*: UP, DOWN, LEFT, RIGHT, SELECT, HOME. */
+-    static const int game_keys[QSERVICE_BADGE_BUTTONS]={K_SPACE,K_CTRL,'a','d','v',K_ESCAPE};
++    static const int game_keys[QSERVICE_BADGE_BUTTONS]={K_SPACE,K_CTRL,'d','a','v',K_ESCAPE};
+     static const int menu_keys[QSERVICE_BADGE_BUTTONS]={K_UPARROW,K_DOWNARROW,K_LEFTARROW,K_RIGHTARROW,K_ENTER,K_ESCAPE};
+     static uint16_t previous;static int held_key[QSERVICE_BADGE_BUTTONS];
+     uint16_t now=qservice_buttons(),pressed=qservice_buttons_pressed();
+-- 
+2.56.0
+

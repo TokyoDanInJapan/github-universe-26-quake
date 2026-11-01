@@ -1,0 +1,26 @@
+From 4d35b5da0bb13159344c26ac535a1383171b7319 Mon Sep 17 00:00:00 2001
+From: TokyoDanInJapan <254110859+TokyoDanInJapan@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 22:03:14 +0900
+Subject: [PATCH 7/9] Badge: swap menu up and down
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ platform/rp2350/game/platform.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/platform/rp2350/game/platform.c b/platform/rp2350/game/platform.c
+index cfaaa7d..2db0d19 100644
+--- a/platform/rp2350/game/platform.c
++++ b/platform/rp2350/game/platform.c
+@@ -135,7 +135,7 @@ void IN_Move(usercmd_t *cmd){
+ void Sys_SendKeyEvents(void){
+     /* Bit order matches QSERVICE_BADGE_*: UP, DOWN, LEFT, RIGHT, SELECT, HOME. */
+     static const int game_keys[QSERVICE_BADGE_BUTTONS]={K_SPACE,K_CTRL,'d','a','v',K_ESCAPE};
+-    static const int menu_keys[QSERVICE_BADGE_BUTTONS]={K_UPARROW,K_DOWNARROW,K_LEFTARROW,K_RIGHTARROW,K_ENTER,K_ESCAPE};
++    static const int menu_keys[QSERVICE_BADGE_BUTTONS]={K_DOWNARROW,K_UPARROW,K_LEFTARROW,K_RIGHTARROW,K_ENTER,K_ESCAPE};
+     static uint16_t previous;static int held_key[QSERVICE_BADGE_BUTTONS];
+     uint16_t now=qservice_buttons(),pressed=qservice_buttons_pressed();
+     for(unsigned i=0;i<QSERVICE_BADGE_BUTTONS;i++){
+-- 
+2.56.0
+

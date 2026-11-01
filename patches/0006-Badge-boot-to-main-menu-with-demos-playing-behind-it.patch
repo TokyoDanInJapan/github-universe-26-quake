@@ -1,0 +1,51 @@
+From 823ef095e933ff42c72862f01812c3b05ba638b0 Mon Sep 17 00:00:00 2001
+From: TokyoDanInJapan <254110859+TokyoDanInJapan@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 22:03:14 +0900
+Subject: [PATCH 6/9] Badge: boot to main menu with demos playing behind it
+
+Tilt and calibration are skipped during demo playback; the calibration
+prompt appears when a real game starts.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ platform/rp2350/game/platform.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/platform/rp2350/game/platform.c b/platform/rp2350/game/platform.c
+index a1b590b..cfaaa7d 100644
+--- a/platform/rp2350/game/platform.c
++++ b/platform/rp2350/game/platform.c
+@@ -35,6 +35,7 @@ void IN_Commands(void){}
+  *           LEFT/RIGHT = strafe right/left, HOME = menu.
+  * In menus: the buttons are arrows, SELECT = enter, HOME = back.
+  *
++ * The badge boots to the main menu with the demos playing behind it.
+  * Before play starts, and each time the menu closes, the game pauses and
+  * asks you to hold the badge comfortably and press SELECT. That position
+  * becomes "level" for tilt.
+@@ -115,6 +116,8 @@ void IN_Move(usercmd_t *cmd){
+     tilt_x+=(a[0]-tilt_x)*BADGE_FILTER;tilt_y+=(a[1]-tilt_y)*BADGE_FILTER;tilt_z+=(a[2]-tilt_z)*BADGE_FILTER;
+ 
+     keydest_t dest=key_dest,previous=tilt_last_dest;tilt_last_dest=dest;
++    /* No tilt or calibration while a demo plays; calibrate when a real game starts. */
++    if(_g->cls.demoplayback){tilt_have_level=false;return;}
+     if(dest!=key_game)return;
+     if((!tilt_have_level || previous==key_menu) && !calibrating)calibrate_start();
+     if(calibrating && !calibrate_step()){tilt_debug(true,a,0,0);return;}
+@@ -193,7 +196,13 @@ int main(void){
+         "bind SPACE +jump"
+     };
+     for(unsigned i=0;i<sizeof bindings/sizeof bindings[0];i++)Cmd_ExecuteString(bindings[i],src_command);
++#ifdef UNIVERSE_BADGE
++    /* Boot like the original game: demos loop behind the main menu. */
++    _g->cls.demonum=0;
++    Cbuf_AddText("startdemos demo1 demo2 demo3\nmenu_main\n");
++#else
+     Cbuf_AddText("map start\n");
++#endif
+     double previous=Sys_FloatTime();
+     for(;;){double now=Sys_FloatTime(),dt=now-previous;previous=now;if(dt>0.1)dt=0.1;Host_Frame(dt);
+         qrp_game_stats.frames++;qrp_game_stats.signon=_g->cls.signon;qrp_game_stats.entities=sv.num_edicts;qrp_game_stats.health=_g->cl.stats[STAT_HEALTH];
+-- 
+2.56.0
+

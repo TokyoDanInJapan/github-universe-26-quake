@@ -1,0 +1,413 @@
+From 6db52ce8f003c00b09e41ca889cb14ed040c1964 Mon Sep 17 00:00:00 2001
+From: TokyoDanInJapan <254110859+TokyoDanInJapan@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 22:03:14 +0900
+Subject: [PATCH 1/9] Add GitHub Universe badge board with button and tilt
+ controls
+
+- New universe_badge board (custom Tufty 2350): Explorer LCD pins,
+  six GPIO buttons, LSM6DS3TR-C on i2c1 (GPIO18/19, 0x6a), POWER_EN latch.
+- Skip Explorer PWM audio and QwSTPad I2C, whose pins are VBUS_DETECT,
+  CAP_ALERT and IMU_INT on the badge.
+- Tilt forward/back walks, tilt left/right turns; level is captured at
+  start and whenever the menu closes. Buttons switch to menu keys in menus.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ platform/rp2350/CMakeLists.txt          |  2 +-
+ platform/rp2350/boards/universe_badge.h | 76 ++++++++++++++++++++
+ platform/rp2350/game/CMakeLists.txt     |  5 ++
+ platform/rp2350/game/platform.c         | 85 ++++++++++++++++++++++-
+ platform/rp2350/qservice.c              | 92 +++++++++++++++++++++++++
+ platform/rp2350/qservice.h              |  8 +++
+ 6 files changed, 266 insertions(+), 2 deletions(-)
+ create mode 100644 platform/rp2350/boards/universe_badge.h
+
+diff --git a/platform/rp2350/CMakeLists.txt b/platform/rp2350/CMakeLists.txt
+index 7ab9521..c25c435 100644
+--- a/platform/rp2350/CMakeLists.txt
++++ b/platform/rp2350/CMakeLists.txt
+@@ -1,6 +1,6 @@
+ cmake_minimum_required(VERSION 3.20)
+ set(PICO_PLATFORM rp2350-arm-s CACHE STRING "Target platform")
+-set(PICO_BOARD pimoroni_explorer CACHE STRING "Board")
++set(PICO_BOARD universe_badge CACHE STRING "Board")
+ list(APPEND PICO_BOARD_HEADER_DIRS "${CMAKE_CURRENT_LIST_DIR}/boards")
+ if(NOT PICO_SDK_PATH)
+     set(PICO_SDK_PATH "$ENV{PICO_SDK_PATH}")
+diff --git a/platform/rp2350/boards/universe_badge.h b/platform/rp2350/boards/universe_badge.h
+new file mode 100644
+index 0000000..aa9410e
+--- /dev/null
++++ b/platform/rp2350/boards/universe_badge.h
+@@ -0,0 +1,76 @@
++/*
++ * Board definition for the GitHub Universe 2026 badge
++ * (custom Pimoroni Tufty 2350, USB ID 2e8a:1101).
++ *
++ * Pins were read from the badge's own MicroPython firmware (machine.Pin.board).
++ * The LCD wiring is the same as the Pimoroni Explorer.
++ *
++ * SPDX-License-Identifier: BSD-3-Clause
++ */
++
++#ifndef _BOARDS_UNIVERSE_BADGE_H
++#define _BOARDS_UNIVERSE_BADGE_H
++
++pico_board_cmake_set(PICO_PLATFORM, rp2350)
++
++#ifndef UNIVERSE_BADGE
++#define UNIVERSE_BADGE 1
++#endif
++
++/* 80-GPIO RP2350B package. */
++#define PICO_RP2350A 0
++
++/* LCD: ST7789 on an 8-bit parallel bus (same pins as the Explorer). */
++#define UNIVERSE_BADGE_LCD_BACKLIGHT_PIN 26
++#define UNIVERSE_BADGE_LCD_CS_PIN        27
++#define UNIVERSE_BADGE_LCD_RS_PIN        28
++#define UNIVERSE_BADGE_LCD_WR_PIN        30
++#define UNIVERSE_BADGE_LCD_RD_PIN        31
++#define UNIVERSE_BADGE_LCD_DB0_PIN       32
++
++/* Front buttons. All are active low and need the internal pull-up. */
++#define UNIVERSE_BADGE_BUTTON_DOWN_PIN   6
++#define UNIVERSE_BADGE_BUTTON_LEFT_PIN   7
++#define UNIVERSE_BADGE_BUTTON_RIGHT_PIN  9
++#define UNIVERSE_BADGE_BUTTON_SELECT_PIN 10
++#define UNIVERSE_BADGE_BUTTON_UP_PIN     11
++#define UNIVERSE_BADGE_BUTTON_HOME_PIN   22
++
++/* Internal I2C bus (i2c1): LSM6DS3TR-C IMU at 0x6a, CAP1208 touch at 0x28. */
++#define UNIVERSE_BADGE_INT_I2C_SDA_PIN   18
++#define UNIVERSE_BADGE_INT_I2C_SCL_PIN   19
++#define UNIVERSE_BADGE_IMU_ADDRESS       0x6a
++
++/* Battery power latch. Must be driven high or the badge turns off on battery. */
++#define UNIVERSE_BADGE_POWER_EN_PIN      41
++
++/*
++ * Pins this firmware must leave alone:
++ *   12 VBUS_DETECT (input), 13 CAP_ALERT (input), 20 IMU_INT,
++ *   23-25/29 Wi-Fi module, 4/5 Qwiic bus, 16/17 IR.
++ * The badge has no speaker, so the Explorer's PWM audio on GPIO12/13 is not used.
++ */
++
++#ifndef PICO_DEFAULT_LED_PIN
++#define PICO_DEFAULT_LED_PIN UNIVERSE_BADGE_LCD_BACKLIGHT_PIN
++#endif
++#ifndef PICO_DEFAULT_LED_PIN_INVERTED
++#define PICO_DEFAULT_LED_PIN_INVERTED 0
++#endif
++
++/* 16 MB QSPI flash. The badge's own firmware reports boot2_w25q080. */
++#define PICO_BOOT_STAGE2_CHOOSE_W25Q080 1
++#ifndef PICO_FLASH_SPI_CLKDIV
++#define PICO_FLASH_SPI_CLKDIV 2
++#endif
++pico_board_cmake_set_default(PICO_FLASH_SIZE_BYTES, (16 * 1024 * 1024))
++#ifndef PICO_FLASH_SIZE_BYTES
++#define PICO_FLASH_SIZE_BYTES (16 * 1024 * 1024)
++#endif
++
++pico_board_cmake_set_default(PICO_RP2350_A2_SUPPORTED, 1)
++#ifndef PICO_RP2350_A2_SUPPORTED
++#define PICO_RP2350_A2_SUPPORTED 1
++#endif
++
++#endif
+diff --git a/platform/rp2350/game/CMakeLists.txt b/platform/rp2350/game/CMakeLists.txt
+index e6cbe44..7e33cad 100644
+--- a/platform/rp2350/game/CMakeLists.txt
++++ b/platform/rp2350/game/CMakeLists.txt
+@@ -24,3 +24,8 @@ add_custom_command(TARGET quake_rp2350 POST_BUILD
+     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/../../../Tools/RP2350Pack/make_uf2.py" --firmware-only "$<TARGET_FILE_DIR:quake_rp2350>/quake_rp2350.uf2" "$<TARGET_FILE_DIR:quake_rp2350>/quake_rp2350.uf2")
+ 
+ pico_add_linker_script_override_path(quake_rp2350 "${CMAKE_CURRENT_LIST_DIR}" FILES sections_stack.incl section_end.incl)
++
++# The game sources do not include the Pico SDK headers, so pass the board flag directly.
++if(PICO_BOARD STREQUAL "universe_badge")
++    target_compile_definitions(quake_rp2350 PRIVATE UNIVERSE_BADGE=1)
++endif()
+diff --git a/platform/rp2350/game/platform.c b/platform/rp2350/game/platform.c
+index c5ab844..b3a0060 100644
+--- a/platform/rp2350/game/platform.c
++++ b/platform/rp2350/game/platform.c
+@@ -26,6 +26,87 @@ char *Sys_ConsoleInput(void){
+ void IN_Init(void){}
+ void IN_Shutdown(void){}
+ void IN_Commands(void){}
++#ifdef UNIVERSE_BADGE
++/*
++ * GitHub Universe badge controls.
++ *
++ * In game:  tilt forward/back = walk, tilt left/right = turn,
++ *           SELECT = fire, UP = jump, DOWN = next weapon,
++ *           LEFT/RIGHT = strafe, HOME = menu.
++ * In menus: the buttons are arrows, SELECT = enter, HOME = back.
++ *
++ * "Level" is however you hold the badge when the game starts, and it is
++ * captured again each time you close the menu.
++ *
++ * If a tilt direction feels reversed, flip its sign here.
++ */
++#define BADGE_TILT_FORWARD_SIGN  1.0f
++#define BADGE_TILT_TURN_SIGN     1.0f
++#define BADGE_TILT_DEADZONE_DEG  6.0f
++#define BADGE_TILT_FULL_DEG     25.0f
++#define BADGE_MAX_FORWARD      320.0f   /* units/s; walk is 200, run is 400 */
++#define BADGE_MAX_YAW          160.0f   /* degrees/s */
++#define BADGE_FILTER             0.25f  /* low-pass amount per frame */
++#define BADGE_RAD2DEG (180.0f/(float)M_PI)
++
++static float tilt_x,tilt_y,tilt_z,level_pitch,level_roll;
++static bool tilt_have_sample,tilt_have_level;
++static double tilt_first_sample;
++static keydest_t tilt_last_dest=key_game;
++
++static float tilt_pitch(void){return atan2f(tilt_y,tilt_z)*BADGE_RAD2DEG;}
++static float tilt_roll(void){return atan2f(tilt_x,sqrtf(tilt_y*tilt_y+tilt_z*tilt_z))*BADGE_RAD2DEG;}
++static void tilt_set_level(void){level_pitch=tilt_pitch();level_roll=tilt_roll();tilt_have_level=true;Con_Printf("Tilt level set\n");}
++
++/* Maps an angle offset to -1..1 with a dead zone and a gentle curve. */
++static float tilt_axis(float degrees){
++    float a=fabsf(degrees);
++    if(a<=BADGE_TILT_DEADZONE_DEG)return 0.0f;
++    float v=(a-BADGE_TILT_DEADZONE_DEG)/(BADGE_TILT_FULL_DEG-BADGE_TILT_DEADZONE_DEG);
++    if(v>1.0f)v=1.0f;
++    v=v*v*(3.0f-2.0f*v);
++    return degrees<0?-v:v;
++}
++
++void IN_Move(usercmd_t *cmd){
++    int16_t a[3];
++    if(!qservice_accel(a))return;
++    if(!tilt_have_sample){tilt_x=a[0];tilt_y=a[1];tilt_z=a[2];tilt_have_sample=true;tilt_first_sample=Sys_FloatTime();}
++    tilt_x+=(a[0]-tilt_x)*BADGE_FILTER;tilt_y+=(a[1]-tilt_y)*BADGE_FILTER;tilt_z+=(a[2]-tilt_z)*BADGE_FILTER;
++
++    keydest_t dest=key_dest,previous=tilt_last_dest;tilt_last_dest=dest;
++    if(dest!=key_game)return;
++    if(previous==key_menu)tilt_set_level();
++    if(!tilt_have_level){if(Sys_FloatTime()-tilt_first_sample>=1.0)tilt_set_level();return;}
++
++    float dp=tilt_pitch()-level_pitch;
++    if(dp>180.0f)dp-=360.0f;else if(dp<-180.0f)dp+=360.0f;
++    float forward=tilt_axis(dp)*BADGE_TILT_FORWARD_SIGN;
++    float turn=tilt_axis(tilt_roll()-level_roll)*BADGE_TILT_TURN_SIGN;
++
++    cmd->forwardmove+=forward*BADGE_MAX_FORWARD;
++    _g->cl.viewangles[YAW]=anglemod(_g->cl.viewangles[YAW]-turn*BADGE_MAX_YAW*(float)host_frametime);
++}
++
++void Sys_SendKeyEvents(void){
++    /* Bit order matches QSERVICE_BADGE_*: UP, DOWN, LEFT, RIGHT, SELECT, HOME. */
++    static const int game_keys[QSERVICE_BADGE_BUTTONS]={K_SPACE,'v','a','d',K_CTRL,K_ESCAPE};
++    static const int menu_keys[QSERVICE_BADGE_BUTTONS]={K_UPARROW,K_DOWNARROW,K_LEFTARROW,K_RIGHTARROW,K_ENTER,K_ESCAPE};
++    static uint16_t previous;static int held_key[QSERVICE_BADGE_BUTTONS];
++    uint16_t now=qservice_buttons(),pressed=qservice_buttons_pressed();
++    for(unsigned i=0;i<QSERVICE_BADGE_BUTTONS;i++){
++        unsigned mask=1u<<i;
++        int key=(key_dest==key_game?game_keys:menu_keys)[i];
++        if((now^previous)&mask){
++            /* Release the same key that was pressed, even if the menu opened in between. */
++            if(now&mask){held_key[i]=key;Key_Event(key,true);}
++            else Key_Event(held_key[i],false);
++        }
++        else if((pressed&mask) && !(now&mask)){Key_Event(key,true);Key_Event(key,false);}
++    }
++    previous=now;
++}
++#else
+ void IN_Move(usercmd_t *cmd){(void)cmd;}
+ void Sys_SendKeyEvents(void){
+     static uint16_t previous;uint16_t now=qservice_buttons(),pressed=qservice_buttons_pressed();
+@@ -38,6 +119,7 @@ void Sys_SendKeyEvents(void){
+     }
+     previous=now;
+ }
++#endif
+ void VID_SetPalette(byte *p){memcpy(palette,p,768);}
+ void VID_ShiftPalette(byte *p){VID_SetPalette(p);}
+ static byte *acquire_frame(void){byte *p;while(!(p=qservice_frame_acquire(&frame_slot))){__asm volatile("nop");}return p;}
+@@ -61,7 +143,8 @@ int main(void){
+         "bind UPARROW +forward", "bind DOWNARROW +back",
+         "bind a +moveleft", "bind d +moveright",
+         "bind CTRL +attack", "bind v \"impulse 10\"",
+-        "bind PGDN +lookdown", "bind PGUP +lookup"
++        "bind PGDN +lookdown", "bind PGUP +lookup",
++        "bind SPACE +jump"
+     };
+     for(unsigned i=0;i<sizeof bindings/sizeof bindings[0];i++)Cmd_ExecuteString(bindings[i],src_command);
+     Cbuf_AddText("map start\n");
+diff --git a/platform/rp2350/qservice.c b/platform/rp2350/qservice.c
+index 8c4afd8..52e3a75 100644
+--- a/platform/rp2350/qservice.c
++++ b/platform/rp2350/qservice.c
+@@ -64,6 +64,68 @@ static uint32_t load(const uint32_t *p) { return __atomic_load_n(p,__ATOMIC_ACQU
+ static void publish(uint32_t *p,uint32_t v) { __atomic_store_n(p,v,__ATOMIC_RELEASE); }
+ static void counter(uint32_t *p) { __atomic_fetch_add(p,1,__ATOMIC_RELAXED); }
+ 
++#ifdef UNIVERSE_BADGE
++/* Badge buttons, in qservice_buttons() bit order (see QSERVICE_BADGE_* in qservice.h). */
++static const uint8_t badge_button_pins[QSERVICE_BADGE_BUTTONS]={
++    UNIVERSE_BADGE_BUTTON_UP_PIN,UNIVERSE_BADGE_BUTTON_DOWN_PIN,
++    UNIVERSE_BADGE_BUTTON_LEFT_PIN,UNIVERSE_BADGE_BUTTON_RIGHT_PIN,
++    UNIVERSE_BADGE_BUTTON_SELECT_PIN,UNIVERSE_BADGE_BUTTON_HOME_PIN
++};
++/* Latest accelerometer sample: x and y packed in one word, z in another. */
++static volatile uint32_t accel_xy,accel_z;
++static bool imu_ok;
++
++enum {
++    LSM6_CTRL1_XL=0x10, /* 0x40: 104 Hz, +-2 g */
++    LSM6_CTRL3_C=0x12,  /* 0x44: block data update, auto-increment */
++    LSM6_OUTX_L_XL=0x28,
++    I2C_TIMEOUT_US=2000
++};
++
++static bool imu_write(uint8_t reg,uint8_t value) {
++    uint8_t data[2]={reg,value};
++    return i2c_write_timeout_us(i2c1,UNIVERSE_BADGE_IMU_ADDRESS,data,2,false,I2C_TIMEOUT_US)==2;
++}
++
++static bool imu_init(void) {
++    i2c_init(i2c1,400000);
++    gpio_set_function(UNIVERSE_BADGE_INT_I2C_SDA_PIN,GPIO_FUNC_I2C);
++    gpio_set_function(UNIVERSE_BADGE_INT_I2C_SCL_PIN,GPIO_FUNC_I2C);
++    gpio_pull_up(UNIVERSE_BADGE_INT_I2C_SDA_PIN);
++    gpio_pull_up(UNIVERSE_BADGE_INT_I2C_SCL_PIN);
++    return imu_write(LSM6_CTRL3_C,0x44) && imu_write(LSM6_CTRL1_XL,0x40);
++}
++
++static void imu_read(void) {
++    if(!imu_ok)return;
++    uint8_t reg=LSM6_OUTX_L_XL,raw[6];
++    if(i2c_write_timeout_us(i2c1,UNIVERSE_BADGE_IMU_ADDRESS,&reg,1,true,I2C_TIMEOUT_US)!=1 ||
++       i2c_read_timeout_us(i2c1,UNIVERSE_BADGE_IMU_ADDRESS,raw,6,false,I2C_TIMEOUT_US)!=6) {
++        counter(&stats.input_errors);
++        return;
++    }
++    __atomic_store_n(&accel_xy,(uint32_t)raw[0]|(uint32_t)raw[1]<<8|(uint32_t)raw[2]<<16|(uint32_t)raw[3]<<24,__ATOMIC_RELEASE);
++    __atomic_store_n(&accel_z,(uint32_t)raw[4]|(uint32_t)raw[5]<<8,__ATOMIC_RELEASE);
++}
++
++static void badge_buttons_init(void) {
++    for(unsigned i=0;i<QSERVICE_BADGE_BUTTONS;++i) {
++        gpio_init(badge_button_pins[i]);
++        gpio_set_dir(badge_button_pins[i],GPIO_IN);
++        gpio_pull_up(badge_button_pins[i]);
++    }
++}
++
++static bool badge_read_buttons(uint16_t *buttons) {
++    uint16_t value=0;
++    for(unsigned i=0;i<QSERVICE_BADGE_BUTTONS;++i)
++        if(!gpio_get(badge_button_pins[i]))value|=1u<<i;
++    *buttons=value;
++    imu_read();
++    return true;
++}
++#endif
++
+ static void audio_lock_mixer(void) {
+     while(!spin_try_lock_unsafe(audio_lock)) {
+         if(get_core_num()==1)check_core0_fault();
+@@ -185,7 +247,11 @@ static void input_service(void) {
+     if((int32_t)(now-next_input)<0)return;
+ 
+     uint16_t buttons;
++#ifdef UNIVERSE_BADGE
++    if(!badge_read_buttons(&buttons)) {
++#else
+     if(!qwstpad_read_buttons(&input_pad,&buttons)) {
++#endif
+         counter(&stats.input_errors);
+         next_input=now+INPUT_POLL_US;
+         return; /* p8 behavior: keep the last valid state on a failed read. */
+@@ -251,6 +317,11 @@ static void video_present(void) {
+ }
+ 
+ static void worker(void) {
++#ifdef UNIVERSE_BADGE
++    badge_buttons_init();
++    imu_ok=imu_init();
++    if(!imu_ok)counter(&stats.input_errors);
++#else
+     i2c_init(i2c0,400000);
+     gpio_set_function(20,GPIO_FUNC_I2C);
+     gpio_set_function(21,GPIO_FUNC_I2C);
+@@ -259,6 +330,7 @@ static void worker(void) {
+         publish(&started,2);
+         return;
+     }
++#endif
+ 
+     audio_lock_number=spin_lock_claim_unused(true);
+     audio_lock=spin_lock_instance(audio_lock_number);
+@@ -274,10 +346,13 @@ static void worker(void) {
+ 
+     audio_ring_reset();
+     audio_slot=0;
++#ifndef UNIVERSE_BADGE
++    /* The badge has no speaker, and GPIO12/13 are VBUS_DETECT and CAP_ALERT there. */
+     audio_hw_init();
+     audio_service();
+     busy_wait_us_32(1000);
+     gpio_put(13,1);
++#endif
+ 
+     next_input=time_us_32();
+     input_service();
+@@ -293,6 +368,11 @@ static void worker(void) {
+ }
+ 
+ bool qservice_start(void) {
++#ifdef UNIVERSE_BADGE
++    gpio_init(UNIVERSE_BADGE_POWER_EN_PIN);
++    gpio_set_dir(UNIVERSE_BADGE_POWER_EN_PIN,GPIO_OUT);
++    gpio_put(UNIVERSE_BADGE_POWER_EN_PIN,1);
++#endif
+     uint32_t state=load(&started);
+     if(state)return state==1;
+     multicore_launch_core1(worker);
+@@ -321,6 +401,18 @@ uint16_t qservice_buttons(void) {
+     return __atomic_load_n(&input_buttons,__ATOMIC_ACQUIRE);
+ }
+ 
++bool qservice_accel(int16_t out[3]) {
++#ifdef UNIVERSE_BADGE
++    if(!imu_ok)return false;
++    uint32_t xy=__atomic_load_n(&accel_xy,__ATOMIC_ACQUIRE),z=__atomic_load_n(&accel_z,__ATOMIC_ACQUIRE);
++    out[0]=(int16_t)(xy&0xffffu);out[1]=(int16_t)(xy>>16);out[2]=(int16_t)(z&0xffffu);
++    return true;
++#else
++    (void)out;
++    return false;
++#endif
++}
++
+ uint16_t qservice_buttons_pressed(void) {
+     uint32_t value=__atomic_fetch_and(&sampled_buttons,0xffffu,__ATOMIC_ACQ_REL);
+     return (uint16_t)(value>>16);
+diff --git a/platform/rp2350/qservice.h b/platform/rp2350/qservice.h
+index 5bd3a6a..754e908 100644
+--- a/platform/rp2350/qservice.h
++++ b/platform/rp2350/qservice.h
+@@ -11,6 +11,14 @@ uint8_t *qservice_frame_acquire(unsigned *slot);
+ void qservice_frame_submit(unsigned slot,const uint8_t palette[768]);
+ uint16_t qservice_buttons(void);
+ uint16_t qservice_buttons_pressed(void);
++/* Badge button bits returned by qservice_buttons() on UNIVERSE_BADGE builds. */
++enum {
++    QSERVICE_BADGE_UP,QSERVICE_BADGE_DOWN,QSERVICE_BADGE_LEFT,
++    QSERVICE_BADGE_RIGHT,QSERVICE_BADGE_SELECT,QSERVICE_BADGE_HOME,
++    QSERVICE_BADGE_BUTTONS
++};
++/* Latest raw accelerometer sample (x, y, z; 16384 = 1 g). False if there is no IMU. */
++bool qservice_accel(int16_t out[3]);
+ /* Mixer mutations are synchronized with core 1 using the same shared-mixer
+  * spin-lock model as p8. PCM or QAD1 source bytes must remain valid while
+  * active; production QAD1 data is immutable XIP and is decoded on core 1. */
+-- 
+2.56.0
+

@@ -1,0 +1,68 @@
+From 3afb2a0f4686d8b396f5c9aebf5ad08c36b17fc3 Mon Sep 17 00:00:00 2001
+From: TokyoDanInJapan <254110859+TokyoDanInJapan@users.noreply.github.com>
+Date: Sun, 1 Nov 2026 22:03:14 +0900
+Subject: [PATCH 8/9] Badge: hold SELECT to open or close the menu
+
+A short SELECT press is next weapon in game and enter in menus, sent on
+release. Holding it for 0.6 s opens the menu in game, or closes the
+menu completely from any menu screen.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ platform/rp2350/game/platform.c | 25 +++++++++++++++++++++++--
+ 1 file changed, 23 insertions(+), 2 deletions(-)
+
+diff --git a/platform/rp2350/game/platform.c b/platform/rp2350/game/platform.c
+index 2db0d19..a72e9a1 100644
+--- a/platform/rp2350/game/platform.c
++++ b/platform/rp2350/game/platform.c
+@@ -31,9 +31,10 @@ void IN_Commands(void){}
+  * GitHub Universe badge controls.
+  *
+  * In game:  tilt forward/back = walk, tilt left/right = turn,
+- *           DOWN = fire, UP = jump, SELECT = next weapon,
++ *           DOWN = fire, UP = jump, SELECT = next weapon (hold it to open the menu),
+  *           LEFT/RIGHT = strafe right/left, HOME = menu.
+- * In menus: the buttons are arrows, SELECT = enter, HOME = back.
++ * In menus: the buttons are arrows, SELECT = enter (hold it to close the menu),
++ *           HOME = back.
+  *
+  * The badge boots to the main menu with the demos playing behind it.
+  * Before play starts, and each time the menu closes, the game pauses and
+@@ -50,6 +51,7 @@ void IN_Commands(void){}
+ #define BADGE_MAX_YAW          160.0f   /* degrees/s */
+ #define BADGE_FILTER             0.25f  /* low-pass amount per frame */
+ #define BADGE_RAD2DEG (180.0f/(float)M_PI)
++#define BADGE_LONG_PRESS_S       0.6    /* hold SELECT this long to open the menu */
+ 
+ static float tilt_x,tilt_y,tilt_z,level_pitch,level_roll;
+ static bool tilt_have_sample,tilt_have_level;
+@@ -146,6 +148,25 @@ void Sys_SendKeyEvents(void){
+         bool swallow=in_game && calibrating && i!=QSERVICE_BADGE_HOME;
+         bool press=((now^previous)&mask)?(now&mask)!=0:((pressed&mask) && !(now&mask));
+         if(swallow && press && i==QSERVICE_BADGE_SELECT)calibrate_confirmed=true;
++        /* SELECT acts on release: a short press is next weapon (in game) or enter (in menus).
++           Holding it opens the menu in game, or closes the menu completely. */
++        static bool select_pending;static double select_down_at;
++        if(i==QSERVICE_BADGE_SELECT && !swallow){
++            double t=Sys_FloatTime();
++            int tap=in_game?'v':K_ENTER;
++            held_key[i]=0;
++            if(press && (now&mask)){select_pending=true;select_down_at=t;}
++            else if(press){Key_Event(tap,true);Key_Event(tap,false);}
++            if(select_pending){
++                if(!(now&mask)){select_pending=false;Key_Event(tap,true);Key_Event(tap,false);}
++                else if(t-select_down_at>=BADGE_LONG_PRESS_S){
++                    select_pending=false;
++                    if(in_game){Key_Event(K_ESCAPE,true);Key_Event(K_ESCAPE,false);}
++                    else if(key_dest==key_menu){for(int n=0;n<3 && key_dest==key_menu;n++)M_ToggleMenu_f();}
++                }
++            }
++            continue;
++        }
+         if((now^previous)&mask){
+             /* Release the same key that was pressed, even if the menu opened in between. */
+             if(now&mask){held_key[i]=swallow?0:key;if(!swallow)Key_Event(key,true);}
+-- 
+2.56.0
+
